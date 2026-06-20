@@ -58,7 +58,7 @@ def _build_prompt(case_row, uploaded_docs, missing_documents, combined_text,
     return f"""You are an expert immigration paralegal drafting a formal petition support letter.
 
 Case details:
-- Client Name: {client_name}
+- Client Name (the beneficiary of this petition): {client_name}
 - Petition / Case Type: {case_type}
 - Priority: {priority}
 - Filing Law Firm: {law_firm_name}
@@ -70,23 +70,55 @@ Source material extracted from the client's uploaded documents:
 {combined_text[:12000] if combined_text else "No document text was available."}
 \"\"\"
 
+CRITICAL — BENEFICIARY IDENTITY: This petition is being filed for the client named
+"{client_name}" and for no one else. The source material above was extracted
+automatically from uploaded files and may contain other names (e.g. references,
+sample letters, third parties, or names from unrelated boilerplate). You MUST
+refer to the beneficiary as "{client_name}" throughout the entire letter. Never
+substitute, infer, or use any other person's name as the beneficiary, even if a
+different name appears more prominently in the source material. If the source
+material does not clearly describe "{client_name}", use the qualifications/
+experience described but still attribute them to "{client_name}".
+
 Draft a formal petition support letter for this case. Structure it with these sections:
-1. Petitioner / Beneficiary Information
-2. Statement of Purpose (why this petition is being filed)
-3. Summary of Qualifications (drawn from the source material above)
-4. Supporting Evidence Summary (list the documents on file and what each demonstrates)
-5. Conclusion / Request for Approval
+1. Statement of Purpose (why this petition is being filed)
+2. Summary of Qualifications (drawn from the source material above, attributed
+   to {client_name})
+3. Supporting Evidence Summary (list the documents on file and what each demonstrates)
+4. Conclusion / Request for Approval
 
 Write in formal, professional legal-letter tone. Do not invent facts that are not
 supported by the source material — if information is missing, write
 "[Information not available in submitted documents]" instead of guessing.
-Keep it concise (under 700 words).
+Keep it concise (under 700 words). Do not use markdown bold (**) around plain
+prose — only use it for the section number headings themselves.
 
-IMPORTANT: Do NOT include a date line, a "Sincerely," closing, a signature block,
-attorney name, attorney title, or bar number at the end of the letter. End the
-letter immediately after section 5 (Conclusion / Request for Approval). The
-signature block will be appended separately.
+IMPORTANT: Do NOT include a "Petitioner / Beneficiary Information" section (it is
+added separately), and do NOT include a date line, a "Sincerely," closing, a
+signature block, attorney name, attorney title, or bar number at the end of the
+letter. End the letter immediately after the Conclusion / Request for Approval
+section. The signature block will be appended separately.
 """
+
+
+def _build_beneficiary_section(case_row, firm_profile: dict) -> str:
+    """
+    Deterministically builds the "1. Petitioner / Beneficiary Information"
+    section from case data, instead of relying on the model to fill it in.
+    This guarantees the beneficiary name always matches the case's
+    client_name, even if uploaded document text references other names.
+    """
+    client_name = case_row[1]
+    case_type = case_row[2]
+    priority = case_row[3] if len(case_row) > 3 else "Standard"
+
+    return (
+        "1. Petitioner / Beneficiary Information\n\n"
+        f"* Beneficiary Name: {client_name}\n"
+        "* Petitioner Name/Company Name: [Information not available in submitted documents]\n"
+        f"* Case Type: {case_type}\n"
+        f"* Priority: {priority}\n"
+    )
 
 
 def _build_signature_block(firm_profile: dict) -> str:
@@ -173,7 +205,10 @@ def generate_petition(case_row, documents, combined_text, prior_analysis_summary
         response = model.generate_content(prompt)
         body_text = (response.text or "").strip()
         if body_text:
-            petition_text = body_text + _build_signature_block(firm_profile)
+            beneficiary_section = _build_beneficiary_section(case_row, firm_profile)
+            petition_text = (
+                beneficiary_section + "\n\n" + body_text + _build_signature_block(firm_profile)
+            )
     except Exception as e:
         generation_error = str(e)
 

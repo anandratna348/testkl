@@ -82,3 +82,22 @@ export async function getPetition(caseId) {
 export function getPetitionDownloadUrl(petitionId) {
   return `${BASE_URL}/petitions/download/${petitionId}`;
 }
+
+// ── Settings / Firm Profile ─────────────────────────────
+
+export async function getFirmProfile() {
+  const res = await fetch(`${BASE_URL}/settings/profile`);
+  if (!res.ok) throw new Error('Failed to fetch firm profile');
+  return res.json();
+}
+
+export async function saveFirmProfile(data) {
+  // data: { attorney_name, attorney_title, law_firm_name, bar_number }
+  const res = await fetch(`${BASE_URL}/settings/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to save firm profile');
+  return res.json();
+}

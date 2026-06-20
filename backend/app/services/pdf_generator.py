@@ -61,6 +61,22 @@ def _escape(text: str) -> str:
     )
 
 
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _markdown_to_reportlab(escaped_text: str) -> str:
+    """Converts the small subset of markdown the AI model tends to emit
+    (**bold**) into ReportLab's mini-XML <b> tags. Must run AFTER _escape,
+    since the <b>/</b> tags it inserts should not themselves be escaped."""
+    return _BOLD_RE.sub(r"<b>\1</b>", escaped_text)
+
+
+def _strip_markdown_for_matching(text: str) -> str:
+    """Strips markdown bold markers so heading/structure detection isn't
+    thrown off by '**1. Section Title**' style headings."""
+    return text.replace("**", "").strip()
+
+
 def render_petition_pdf(case_id: int, petition_id: int, client_name: str,
                          case_type: str, filing_readiness_score: int,
                          risk_level: str, petition_text: str) -> str:
@@ -104,8 +120,25 @@ def render_petition_pdf(case_id: int, petition_id: int, client_name: str,
         ))
     else:
         for para in raw_paragraphs:
-            safe = _escape(para)
-            if _SECTION_HEADER_RE.match(para):
+            # Detect (and strip) a leading markdown bullet marker, e.g. "* Beneficiary Name: ..."
+            is_bullet = para.startswith("* ") or para.startswith("- ")
+            content = para[2:].strip() if is_bullet else para
+
+            # Detect section headings (e.g. "1. Statement of Purpose" or
+            # "**1. Statement of Purpose**") on the markdown-stripped text,
+            # so stray ** around a heading doesn't break detection.
+            is_heading = (not is_bullet) and bool(
+                _SECTION_HEADER_RE.match(_strip_markdown_for_matching(para))
+            )
+
+            safe = _markdown_to_reportlab(_escape(content))
+            if is_bullet:
+                safe = "• " + safe
+
+            if is_heading:
+                # Headings shouldn't carry redundant bold from markdown the
+                # model may have added (the heading style is already bold).
+                safe = safe.replace("<b>", "").replace("</b>", "")
                 story.append(Paragraph(safe, heading_style))
             else:
                 story.append(Paragraph(safe, body_style))
